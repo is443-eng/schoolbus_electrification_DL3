@@ -103,3 +103,4 @@ esb_df %>%
   count(committed, drop = FALSE) %>%
   mutate(percent = round(100 * n / sum(n), 2)) %>%
   print()
+

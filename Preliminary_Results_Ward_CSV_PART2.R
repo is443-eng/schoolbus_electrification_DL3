@@ -217,3 +217,4 @@ if (!is.null(m_combined)) {
   acc  <- mean((pred >= 0.5) == (esb_df$committed == 1), na.rm = TRUE)
   cat("Combined model in-sample accuracy @0.5:", round(acc, 3), "\n")
 }
+
