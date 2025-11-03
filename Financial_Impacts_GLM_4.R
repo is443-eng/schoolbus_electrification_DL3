@@ -1,6 +1,11 @@
 # ===============================================================
 # Electric School Bus — Modeling + Policy Simulation w/ 95% CIs
 # ===============================================================
+# Primary code for analyzing impact of EPA prioritization
+# first plot shows the locale controlled and national impact of prioritization
+# Second plot shows different prioritization scenarios and their impact on adoption
+# Third plot shows how the different blends have been selected
+
 
 library(tidyverse)
 library(ggeffects)
@@ -263,24 +268,97 @@ pal5 <- wes_palette("Darjeeling1", 5, type = "discrete")
 
 ggplot(scenario_results,
        aes(x = scenario, y = weighted_electrification_pct, fill = scenario)) +
-  geom_col(width = 0.6) +
-  geom_errorbar(aes(ymin = ci_low_pct, ymax = ci_high_pct), width = 0.15, linewidth = 0.8) +
-  geom_text(aes(label = sprintf("%.2f%%", weighted_electrification_pct)),
-            vjust = -0.6, fontface = "bold") +
+  geom_col(width = 0.6, color = "black") +
+  geom_errorbar(aes(ymin = ci_low_pct, ymax = ci_high_pct),
+                width = 0.15, linewidth = 0.8, color = "black") +
+  # ---- Move labels below CI bars ----
+geom_text(aes(
+  label = sprintf("%.2f%%", weighted_electrification_pct),
+  y = ci_low_pct - 0.1 * (max(weighted_electrification_pct) - min(ci_low_pct))  # small offset below bar top
+),
+size = 5, fontface = "bold") +
   scale_fill_manual(values = pal5) +
   scale_y_continuous(labels = scales::percent_format(scale = 1),
-                     expand = expansion(mult = c(0.02, 0.12))) +
+                     expand = expansion(mult = c(0.02, 0.15))) +
   labs(
-    title = "National Fleet Electrification: Current vs. Alternative Prioritization Policies",
-    subtitle = paste0(
-      "Bars show fleet-weighted % electrified; error bars = bootstrap 95% CI (n=2000)\n",
-      "Simulated policies are rescaled to keep overall prioritization rate at ",
-      round(100 * overall_prior_rate, 1), "%"
-    ),
-    x = NULL, y = "Fleet-weighted % of Buses Electrified"
+    title = "National Fleet Electrification by Policy Scenario (95% CIs)",
+    subtitle = "Fleet-weighted % of electric buses; error bars show bootstrap 95% CIs",
+    x = NULL,
+    y = "Predicted % Electrified (Fleet-weighted)"
   ) +
   theme_minimal(base_size = 14) +
-  theme(legend.position = "none")
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 12)
+  )
 
+# ===============================================================
+# Scenario composition — 100% stacked bars (much clearer than pies)
+# ===============================================================
 
+# Helper: expected share of prioritized districts by locale for a policy
+scenario_alloc <- function(policy_adj, scen_name) {
+  locale_sizes %>%
+    left_join(policy_adj, by = "locale") %>%
+    mutate(expected_prioritized = n * target_rate_adj) %>%
+    summarise(locale, share = expected_prioritized / sum(expected_prioritized),
+              .groups = "drop") %>%
+    mutate(scenario = scen_name)
+}
+
+# Current (observed) funding mix by locale
+current_alloc <- df_clean %>%
+  group_by(locale) %>%
+  summarise(prioritized = sum(prioritized_any, na.rm = TRUE), .groups = "drop") %>%
+  mutate(share = prioritized / sum(prioritized),
+         scenario = "Current Funding Pattern") %>%
+  select(locale, share, scenario)
+
+# Tidy shares table across scenarios
+shares_df <- bind_rows(
+  current_alloc,
+  scenario_alloc(policy_rural_adj,    "Rural-focused"),
+  scenario_alloc(policy_balanced_adj, "Balanced"),
+  scenario_alloc(policy_urban_adj,    "Urban-focused")
+) %>%
+  mutate(
+    locale   = factor(locale, levels = levels(df_clean$locale)),
+    scenario = factor(
+      scenario,
+      levels = c("Current Funding Pattern", "Rural-focused", "Balanced", "Urban-focused")
+    ),
+    pct_lab = scales::percent(share, accuracy = 0.1)
+  )
+
+# Palette (consistent with your other figures)
+palette_locales <- c("Rural"="#e41a1c", "Suburban"="#1b9e77",
+                     "Town"="#ffb000", "Urban"="#d95f02")
+
+# Label only sizable segments to avoid clutter
+labels_inside <- shares_df %>% filter(share >= 0.06)
+
+ggplot(shares_df, aes(x = scenario, y = share, fill = locale)) +
+  geom_col(width = 0.7, color = "white") +
+  # Labels inside segments (>=6% share)
+  geom_text(
+    data = labels_inside,
+    aes(label = paste0(locale, ": ", pct_lab)),
+    position = position_stack(vjust = 0.5),
+    size = 3.8, fontface = "bold", color = "black"
+  ) +
+  scale_fill_manual(values = palette_locales) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = "How Each Scenario Allocates Prioritization Across Locales",
+    subtitle = "Each bar sums to 100%: share of prioritized districts by locale",
+    x = NULL, y = "Share of prioritized districts",
+    fill = "Locale"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
 
